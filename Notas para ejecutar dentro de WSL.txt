@@ -1,0 +1,13 @@
+Pasos para entrar en la máquina virtual PA
+Abrir una ventana de WSL y navegar a la carpeta de LABSPDDL.
+Ahí abrir code . 
+En esta carpeta o en una de las subcarpetas hacer lo siguiente: source ~/LabsPDDL/venv/bin/actívate
+
+Comandos de ejemplo para los planificadores: 
+time pyperplan -s ehs -H hmax domain1.pddl emergency_d1_l8_p8_c8
+
+
+Nota: Según la última clase de Febrero, también está el planificador downward que supuestamente se ejecuta con 
+./downward.sif, ./downward.sif --show-aliases.
+
+Nota2: Para ejecutar archivos Python hacerlo con python3 nombre_archivo.py
