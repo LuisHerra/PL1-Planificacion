@@ -65,19 +65,6 @@
     )
 
     ;; -----------------------------
-    ;; MOVER SOLO DRON
-    ;; -----------------------------
-
-    (:action fly
-        :parameters (?d - drone ?from - location ?to - location)
-        :precondition (at-drone ?d ?from)
-        :effect (and
-            (not (at-drone ?d ?from))
-            (at-drone ?d ?to)
-        )
-    )
-
-    ;; -----------------------------
     ;; VOLAR DRON JUNTO CON TRANSPORTADOR
     ;; -----------------------------
 
