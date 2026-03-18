@@ -1,5 +1,5 @@
 (define (domain emergency-carrier)
-    (:requirements :strips :typing)
+    (:requirements :strips :typing :action-costs)
 
     (:types
         drone person crate location content carrier num
@@ -32,10 +32,46 @@
         (siguiente ?n1 ?n2 - num)
     )
 
-    ;; -----------------------------
-    ;; MOVER DRON SOLO
-    ;; -----------------------------
+    (:functions
+        (total-cost)
+        (fly-cost ?from - location ?to - location)
+    )
 
+    ;; -----------------------------
+    ;; COGER TRANSPORTADOR
+    ;; -----------------------------
+    (:action pick-up-carrier
+        :parameters (?d - drone ?ca - carrier ?l - location)
+        :precondition (and
+            (at-drone ?d ?l)
+            (at-carrier ?ca ?l)
+        )
+        :effect (and
+            (not (at-carrier ?ca ?l))
+            (carrying ?d ?ca)
+            (increase (total-cost) 1)
+        )
+    )
+
+    ;; -----------------------------
+    ;; DEJAR TRANSPORTADOR
+    ;; -----------------------------
+    (:action drop-carrier
+        :parameters (?d - drone ?ca - carrier ?l - location)
+        :precondition (and
+            (at-drone ?d ?l)
+            (carrying ?d ?ca)
+        )
+        :effect (and
+            (not (carrying ?d ?ca))
+            (at-carrier ?ca ?l)
+            (increase (total-cost) 1)
+        )
+    )
+
+    ;; -----------------------------
+    ;; MOVER SOLO DRON (sin coste aún)
+    ;; -----------------------------
     (:action fly
         :parameters (?d - drone ?from - location ?to - location)
         :precondition (at-drone ?d ?from)
@@ -46,41 +82,8 @@
     )
 
     ;; -----------------------------
-    ;; COGER TRANSPORTADOR
+    ;; VOLAR CON TRANSPORTADOR (sin coste aún)
     ;; -----------------------------
-
-    (:action pick-up-carrier
-        :parameters (?d - drone ?ca - carrier ?l - location)
-        :precondition (and
-            (at-drone ?d ?l)
-            (at-carrier ?ca ?l)
-        )
-        :effect (and
-            (not (at-carrier ?ca ?l))
-            (carrying ?d ?ca)
-        )
-    )
-
-    ;; -----------------------------
-    ;; DEJAR TRANSPORTADOR
-    ;; -----------------------------
-
-    (:action drop-carrier
-        :parameters (?d - drone ?ca - carrier ?l - location)
-        :precondition (and
-            (at-drone ?d ?l)
-            (carrying ?d ?ca)
-        )
-        :effect (and
-            (not (carrying ?d ?ca))
-            (at-carrier ?ca ?l)
-        )
-    )
-
-    ;; -----------------------------
-    ;; MOVER TRANSPORTADOR
-    ;; -----------------------------
-
     (:action fly-and-move-carrier
         :parameters (?d - drone ?ca - carrier ?from - location ?to - location)
         :precondition (and
@@ -96,7 +99,6 @@
     ;; -----------------------------
     ;; COGER CAJA
     ;; -----------------------------
-
     (:action pick-up
         :parameters (?d - drone ?c - crate ?l - location)
         :precondition (and
@@ -108,13 +110,13 @@
             (not (at-crate ?c ?l))
             (not (drone-free ?d))
             (holding ?d ?c)
+            (increase (total-cost) 1)
         )
     )
 
     ;; -----------------------------
     ;; PONER CAJA EN TRANSPORTADOR
     ;; -----------------------------
-
     (:action put-in-carrier
         :parameters (?d - drone ?c - crate ?ca - carrier ?l - location ?n1 ?n2 - num)
         :precondition (and
@@ -131,13 +133,13 @@
             (in ?c ?ca)
             (not (carrier-load ?ca ?n1))
             (carrier-load ?ca ?n2)
+            (increase (total-cost) 1)
         )
     )
 
     ;; -----------------------------
     ;; SACAR CAJA DEL TRANSPORTADOR
     ;; -----------------------------
-
     (:action take-from-carrier
         :parameters (?d - drone ?c - crate ?ca - carrier ?l - location ?n1 ?n2 - num)
         :precondition (and
@@ -154,13 +156,13 @@
             (not (in ?c ?ca))
             (not (carrier-load ?ca ?n2))
             (carrier-load ?ca ?n1)
+            (increase (total-cost) 1)
         )
     )
 
     ;; -----------------------------
     ;; ENTREGAR
     ;; -----------------------------
-
     (:action deliver
         :parameters (?d - drone ?c - crate ?p - person ?l - location ?t - content)
         :precondition (and
@@ -173,7 +175,7 @@
             (person-has ?p ?t)
             (not (holding ?d ?c))
             (drone-free ?d)
+            (increase (total-cost) 1)
         )
     )
-
 )
