@@ -1,0 +1,15 @@
+Arquitectura jerárquica
+enviar-todo
+├── [multi-loc-posible]  → atender-multi-loc
+│       └── cargar-todo-para-loc × 2 locs → fly → entregar × 2 locs
+├── [hay-necesidades]    → atender-localizacion  (loc con más need)
+│       ├── [con-carrier] → elegir-carrier → cargar → fly → entregar → drop
+│       └── [sin-carrier] → entregar-suelto-en-loc (caja a caja)
+└── [no-hay-necesidades] → fin
+
+Cómo cada precondición del enunciado se convierte en un método
+Precondición del enunciadoMétodo que la implementaSin transportadores → cajas sueltasatender-localizacion / sin-carrier-disponibleUn transportador → usarloelegir-carrier / caso 3Mezcla de tipos en el mismo carriercargar-todo-para-loc itera sobre food y medicineRestos sueltos post-carrierentregar-suelto-en-loc tras entregar-en-locCarrier más pequeño → carga al máximo!load-crates usa min(need, space, stock)Carrier más grande → carga parcialmismo min(...), el espacio sobrante queda libreVarios carriers, alguno cubre → el menorelegir-carrier / carrier-cubre-necesidad con NOT EXISTS menorVarios carriers, ninguno cubre → el mayorelegir-carrier / carrier-no-cubre-usar-mayor con NOT EXISTS mayorReelegir carrier al volver al depotenviar-todo llama elegir-carrier en cada iteración tras drop-carrierLoc con más necesidad primeroenviar-todo / hay-necesidades con NOT EXISTS loc con más needMulti-loc sin volver al depotatender-multi-loc encadena dos entregas con fly-carrier entre ellas
+
+Dos decisiones de diseño importantes
+location-total-need como fluent precomputado: SHOP2 no tiene agregaciones tipo SUM. Para comparar prioridades entre localizaciones se mantiene este fluent que se decrementa con cada entrega, lo que permite el NOT EXISTS de priorización sin necesitar aritmética de segundo orden.
+Costes en !fly-carrier: La expresión (+ 50 (/ (carrier-capacity ?ca) 10)) se evalúa en tiempo de planificación usando el fluent carrier-capacity, que no cambia durante el plan, por lo que el coste es siempre correcto.
