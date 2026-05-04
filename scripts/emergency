@@ -1,0 +1,64 @@
+(defdomain emergency
+   (
+    ;; ============================================================
+    ;; OPERADORES
+    ;; ============================================================
+
+    ;; Volar de una localización a otra
+    (:operator (!fly ?d ?from ?to)
+               ()
+               ((at-drone ?d ?from))
+               ((at-drone ?d ?to)))
+
+    ;; Recoger una caja del suelo con un brazo libre
+    (:operator (!pick-up ?d ?a ?c ?l)
+               ((at-drone ?d ?l)
+                (at-crate ?c ?l)
+                (arm-of ?a ?d)
+                (free ?a))
+               ((at-crate ?c ?l)
+                (free ?a))
+               ((holding ?a ?c)))
+
+    ;; Entregar una caja a una persona
+    (:operator (!deliver ?d ?a ?c ?p ?l ?t)
+               ((at-drone ?d ?l)
+                (at-person ?p ?l)
+                (arm-of ?a ?d)
+                (holding ?a ?c)
+                (crate-has ?c ?t)
+                (needs ?p ?t))
+               ((holding ?a ?c)
+                (needs ?p ?t))
+               ((person-has ?p ?t)
+                (free ?a)))
+
+    ;; ============================================================
+    ;; MÉTODOS para (enviar-todo)
+    ;; ============================================================
+
+    ;; Caso base: no hay ninguna necesidad pendiente → hemos terminado
+    (:method (enviar-todo)
+             no-hay-necesidades
+             ((not (needs ?p ?t)))
+             ())
+
+    ;; Caso recursivo: hay al menos una persona con necesidad
+    ;; Buscamos persona, caja adecuada, dron y brazo libre
+    (:method (enviar-todo)
+             hay-necesidades
+             ((needs ?p ?t)
+              (at-person ?p ?lp)
+              (crate-has ?c ?t)
+              (at-crate ?c ?lc)
+              (at-drone ?d ?ld)
+              (arm-of ?a ?d)
+              (free ?a))
+             ((!fly ?d ?ld ?lc)
+              (!pick-up ?d ?a ?c ?lc)
+              (!fly ?d ?lc ?lp)
+              (!deliver ?d ?a ?c ?p ?lp ?t)
+              (!fly ?d ?lp depot)
+              (enviar-todo)))
+
+   ))
