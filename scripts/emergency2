@@ -1,0 +1,93 @@
+(defdomain emergency
+  (
+   ;; ============================================================
+   ;; OPERADORES
+   ;; ============================================================
+
+   ;; Volar de una localización a otra.
+   ;; Precondición (at-drone ?d ?from): evita borrar del estado
+   ;; una localización que el dron no ocupa realmente.
+   ;; Precondición (different ?from ?to): evita vuelos a sí mismo.
+   (:operator (!fly ?d ?from ?to)
+              ((at-drone ?d ?from)
+               (different ?from ?to))
+              ((at-drone ?d ?from))
+              ((at-drone ?d ?to)))
+
+   ;; Recoger una caja del suelo con un brazo libre.
+   ;; Si el brazo no está libre (estado holding por fallo parcial),
+   ;; el operador no se aplica, lo que protege la consistencia del estado.
+   (:operator (!pick-up ?d ?a ?c ?l)
+              ((at-drone ?d ?l)
+               (at-crate ?c ?l)
+               (arm-of ?a ?d)
+               (free ?a))
+              ((at-crate ?c ?l)
+               (free ?a))
+              ((holding ?a ?c)))
+
+   ;; Entregar una caja a una persona.
+   ;; Requiere explícitamente (holding ?a ?c), lo que garantiza
+   ;; que solo entrega si el brazo tiene la caja.
+   (:operator (!deliver ?d ?a ?c ?p ?l ?t)
+              ((at-drone ?d ?l)
+               (at-person ?p ?l)
+               (arm-of ?a ?d)
+               (holding ?a ?c)
+               (crate-has ?c ?t)
+               (needs ?p ?t))
+              ((holding ?a ?c)
+               (needs ?p ?t))
+              ((person-has ?p ?t)
+               (free ?a)))
+
+   ;; ============================================================
+   ;; MÉTODOS AUXILIARES para el retorno al depósito
+   ;; ============================================================
+
+   ;; Si el dron ya está en depot, no hace falta volar.
+   (:method (volver-a-depot ?d)
+            ya-en-depot
+            ((at-drone ?d depot))
+            ())
+
+   ;; Si el dron está en otra localización, vuela al depot.
+   (:method (volver-a-depot ?d)
+            volar-a-depot
+            ((at-drone ?d ?loc)
+             (different ?loc depot))
+            ((!fly ?d ?loc depot)))
+
+   ;; ============================================================
+   ;; MÉTODOS para (enviar-todo)
+   ;; ============================================================
+
+   ;; Caso recursivo: hay al menos una persona con necesidad.
+   ;; Va PRIMERO para que SHOP2 lo intente antes que el caso base.
+   ;; El retorno al depot se delega a (volver-a-depot), que solo
+   ;; ejecuta el vuelo si el dron no está ya ahí.
+   (:method (enviar-todo)
+            hay-necesidades
+            ((needs ?p ?t)
+             (at-person ?p ?lp)
+             (crate-has ?c ?t)
+             (at-crate ?c ?lc)
+             (at-drone ?d ?ld)
+             (arm-of ?a ?d)
+             (free ?a))
+            ((!fly ?d ?ld ?lc)
+             (!pick-up ?d ?a ?c ?lc)
+             (!fly ?d ?lc ?lp)
+             (!deliver ?d ?a ?c ?p ?lp ?t)
+             (volver-a-depot ?d)
+             (enviar-todo)))
+
+   ;; Caso base: el recursivo no pudo unificarse → no quedan
+   ;; necesidades pendientes. Precondición vacía: se aplica solo
+   ;; cuando todos los métodos anteriores han fallado.
+   (:method (enviar-todo)
+            no-hay-necesidades
+            ()
+            ())
+
+  ))

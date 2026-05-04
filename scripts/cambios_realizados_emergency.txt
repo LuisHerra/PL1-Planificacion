@@ -1,0 +1,20 @@
+Resumen de cambios respecto a la versión inicial
+1. Precondición en !fly → estado consistente
+La versión original tenía las precondiciones de !fly vacías. 
+Esto es un bug silencioso: SHOP2 ejecuta la delete list (at-drone ?d ?from) aunque el dron no esté ahí, dejando el estado corrupto. 
+Se añadió (at-drone ?d ?from) para que el operador solo se aplique cuando el dron realmente ocupa esa posición.
+-----------
+2. Guarda (different ?from ?to) en !fly → sin vuelos a sí mismo
+Sin esta guarda, cuando la caja de la siguiente iteración ya estaba en depot, el plan incluía un vuelo depot→depot. 
+Ahora ese paso simplemente no se genera. Esta guarda también es la que hace posible el punto 3.
+3. Subtarea (volver-a-depot ?d) → retorno condicional al depot
+La versión inicial siempre ejecutaba (!fly ?d ?lp depot) al final de cada entrega. 
+Si ?lp ya era depot, con la guarda different el operador fallaría y arrastraría el fallo a todo el método recursivo, 
+bloqueando el planificador aunque quedaran necesidades. La solución es delegar el retorno a dos métodos auxiliares
+: uno que no hace nada si el dron ya está en depot, y otro que vuela si está en otro sitio.
+-----------
+4. Caso base con precondición vacía y orden invertido → terminación correcta
+El original usaba (not (needs ?p ?t)) con variables sin ligar, semánticamente ambiguo en SHOP2.
+ Además estaba antes que el caso recursivo, por lo que SHOP2 podía seleccionarlo prematuramente. 
+Ahora el recursivo va primero y el base, con precondición vacía, actúa como "else": 
+solo se activa cuando el recursivo ya no puede unificarse, que es exactamente cuando no quedan necesidades.
