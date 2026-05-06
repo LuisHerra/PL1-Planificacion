@@ -49,64 +49,64 @@ content_types = ["food", "medicine"]
 
 # ── Generador ─────────────────────────────────────────────────────────────────
 
-def setup_content_types(n_crates, n_persons, n_goals):
-    while True:
-        num_per_type, left = [], n_crates
-        for i in range(len(content_types) - 1):
-            n = random.randint(1, left - (len(content_types) - i - 1))
-            num_per_type.append(n); left -= n
-        num_per_type.append(left)
-        if sum(min(n, n_persons) for n in num_per_type) >= n_goals:
-            break
-    crates_by_type, counter = [], 1
-    for i in range(len(content_types)):
-        group = []
-        for _ in range(num_per_type[i]):
-            group.append("crate" + str(counter)); counter += 1
-        crates_by_type.append(group)
-    return crates_by_type
-
-def setup_needs(n_persons, crates_by_type, n_goals):
-    need = [[False]*len(content_types) for _ in range(n_persons)]
-    goals_per = [0]*len(content_types)
-    for _ in range(n_goals):
-        ok = False
-        while not ok:
-            rp = random.randint(0, n_persons-1)
-            rt = random.randint(0, len(content_types)-1)
-            if goals_per[rt] < len(crates_by_type[rt]) and not need[rp][rt]:
-                need[rp][rt] = True; goals_per[rt] += 1; ok = True
-    return need
-
 def generate_problem(drones, locations, persons, crates, goals):
     drones_l  = ["drone"  + str(i+1) for i in range(drones)]
-    persons_l = ["person" + str(i+1) for i in range(persons)]
-    crates_l  = ["crate"  + str(i+1) for i in range(crates)]
-    locs_l    = ["depot"] + ["loc" + str(i+1) for i in range(locations)]
+    locs_l    = ["loc" + str(i+1) for i in range(locations)]
 
-    cbt  = setup_content_types(crates, persons, goals)
-    need = setup_needs(persons, cbt, goals)
+    # Repartimos el total de cajas (crates) entre el stock de food y medicine en el depot
+    food_stock = random.randint(0, crates)
+    medicine_stock = crates - food_stock
 
-    lines = ["(defproblem problem " + DOMAIN_NAME, "("]
+    # Asignamos los 'goals' (necesidades) garantizando que no superen el stock
+    food_need = 0
+    medicine_need = 0
+    for _ in range(goals):
+        choices = []
+        if food_need < food_stock: choices.append("food")
+        if medicine_need < medicine_stock: choices.append("medicine")
+        choice = random.choice(choices)
+        if choice == "food": food_need += 1
+        else: medicine_need += 1
+
+    # Distribuimos las necesidades entre las localizaciones
+    loc_needs = {l: {"food": 0, "medicine": 0} for l in locs_l}
+    for _ in range(food_need):
+        loc_needs[random.choice(locs_l)]["food"] += 1
+    for _ in range(medicine_need):
+        loc_needs[random.choice(locs_l)]["medicine"] += 1
+
+    lines = ["(defproblem problem emergency-advanced", "("]
+    
+    # Drones
     for d in drones_l:
         lines.append("  (at-drone " + d + " depot)")
-    for d in drones_l:
-        for arm in [d+"_arm1", d+"_arm2"]:
-            lines.append("  (arm-of " + arm + " " + d + ")")
-            lines.append("  (free " + arm + ")")
-    for c in crates_l:
-        lines.append("  (at-crate " + c + " depot)")
-    for ti, group in enumerate(cbt):
-        for cn in group:
-            lines.append("  (crate-has " + cn + " " + content_types[ti] + ")")
-    for p in persons_l:
-        lines.append("  (at-person " + p + " " + random.choice(locs_l[1:]) + ")")
-    for pi in range(persons):
-        for ti in range(len(content_types)):
-            if need[pi][ti]:
-                lines.append("  (needs " + persons_l[pi] + " " + content_types[ti] + ")")
+        lines.append("  (drone-free " + d + ")")
+
+    # Carriers (por defecto añadimos dos con las capacidades del ejemplo)
+    carriers = [("carrier-big", 8), ("carrier-small", 3)]
+    for ca, cap in carriers:
+        lines.append(f"  (at-carrier {ca} depot)")
+        lines.append(f"  (carrier-capacity {ca} {cap})")
+        lines.append(f"  (carrier-free-space {ca} {cap})")
+        lines.append(f"  (carrier-stock {ca} food 0)")
+        lines.append(f"  (carrier-stock {ca} medicine 0)")
+
+    # Stock en el depot
+    lines.append(f"  (location-stock depot food {food_stock})")
+    lines.append(f"  (location-stock depot medicine {medicine_stock})")
+
+    # Necesidades y stock por localización
+    for l in locs_l:
+        f_need = loc_needs[l]["food"]
+        m_need = loc_needs[l]["medicine"]
+        lines.append(f"  (location-need {l} food {f_need})")
+        lines.append(f"  (location-need {l} medicine {m_need})")
+        lines.append(f"  (location-total-need {l} {f_need + m_need})")
+        lines.append(f"  (location-stock {l} food 0)")
+        lines.append(f"  (location-stock {l} medicine 0)")
+
     lines.append(")")
-    # Doble paréntesis: externo = lista de tareas, interno = la tarea
+    # Tarea principal
     lines.append("((enviar-todo))")
     lines.append(")")
     return "\n".join(lines)
@@ -163,73 +163,17 @@ def plot(labels, times, outfile):
     if not vt:
         print("Sin datos para graficar."); return
 
-    # Matriz M de tiempos de ejecución sin planificación jerárquica
-    M_DATA = {
-        5: 0.00, 10: 0.00, 20: 0.23, 30: 3.18, 35: 6.12,
-        40: 10.95, 41: 12.98, 42: 35.07, 43: 32.64, 44: 56.31,
-        45: 31.01, 46: 46.46, 47: 100.72, 48: 101.51, 49: 88.79,
-        50: 64.70, 51: 260.63, 52: 109.04, 55: 498.76
-    }
-    
-    # Extraer los tamaños de los labels, ej: "size5" -> 5
-    try:
-        sizes = [int(l.replace("size", "")) for l in vl]
-    except ValueError:
-        sizes = list(range(len(vl)))
-        
-    vm = [M_DATA.get(s, None) for s in sizes]
-
-    fig, axs = plt.subplots(1, 3, figsize=(18, 6))
-    
-    # --- 1. Gráfica lineal de comparación ---
-    axs[0].plot(sizes, vt, 'o-', color='steelblue', lw=2.2, ms=8, label='JSHOP2 (Jerárquico)')
-    
-    valid_m_idx = [i for i, m in enumerate(vm) if m is not None]
-    valid_m_sizes = [sizes[i] for i in valid_m_idx]
-    valid_m_times = [vm[i] for i in valid_m_idx]
-    
-    if valid_m_times:
-        axs[0].plot(valid_m_sizes, valid_m_times, 's-', color='darkorange', lw=2.2, ms=8, label='Sin Jerárquico (M)')
-    
-    axs[0].set_xlabel("Tamaño del problema")
-    axs[0].set_ylabel("Tiempo de resolución (s)")
-    axs[0].set_title("Comparativa de Tiempos")
-    axs[0].legend()
-    axs[0].grid(True, linestyle='--', alpha=0.55)
-
-    # --- 2. Diagrama de Poincaré (x[t] vs x[t-1]) ---
-    if len(vt) > 1:
-        axs[1].scatter(vt[:-1], vt[1:], color='steelblue', label='JSHOP2', alpha=0.7)
-    if len(valid_m_times) > 1:
-        axs[1].scatter(valid_m_times[:-1], valid_m_times[1:], color='darkorange', label='Sin Jerárquico (M)', marker='s', alpha=0.7)
-    
-    # Línea de identidad x_t = x_{t-1}
-    max_val = max(max(vt), max(valid_m_times) if valid_m_times else 0)
-    axs[1].plot([0, max_val], [0, max_val], 'k--', alpha=0.3, label='$x_t = x_{t-1}$')
-    axs[1].set_xlabel("Tiempo en iteración $t-1$ (s)")
-    axs[1].set_ylabel("Tiempo en iteración $t$ (s)")
-    axs[1].set_title("Diagrama de Poincaré")
-    axs[1].legend()
-    axs[1].grid(True, linestyle='--', alpha=0.55)
-
-    # --- 3. Histograma de la diferencia de tiempos (M - JSHOP2) ---
-    common_sizes = []
-    diffs = []
-    for s, t, m in zip(sizes, vt, vm):
-        if m is not None:
-            common_sizes.append(str(s))
-            diffs.append(m - t) # Diferencia positiva indica que Jerárquico es más rápido
-            
-    if diffs:
-        colors = ['green' if d >= 0 else 'red' for d in diffs]
-        axs[2].bar(common_sizes, diffs, color=colors, alpha=0.7)
-        axs[2].axhline(0, color='black', lw=1)
-        axs[2].set_xlabel("Tamaño del problema")
-        axs[2].set_ylabel("Diferencia (M - Jerárquico) [s]")
-        axs[2].set_title("Mejora de tiempo (Jerárquico vs M)\n>0 indica que Jerárquico es más rápido")
-        axs[2].tick_params(axis='x', rotation=45)
-        axs[2].grid(axis='y', linestyle='--', alpha=0.55)
-
+    fig, ax = plt.subplots(figsize=(13, 6))
+    ax.plot(range(len(vl)), vt, 'o-', color='steelblue', lw=2.2, ms=8,
+            label='JSHOP2 (HTN)')
+    ax.set_xticks(range(len(vl)))
+    ax.set_xticklabels(vl, rotation=28, ha='right', fontsize=9)
+    ax.set_xlabel("Configuración del problema (tamaño creciente)", fontsize=11)
+    ax.set_ylabel("Tiempo de resolución (segundos)", fontsize=11)
+    ax.set_title("Tiempo de resolución vs. Tamaño del problema\n"
+                 "Ejercicio 1.1 – JSHOP2 logística de emergencias", fontsize=13)
+    ax.legend(fontsize=10)
+    ax.grid(True, linestyle='--', alpha=0.55)
     plt.tight_layout()
     plt.savefig(outfile, dpi=160)
     print("\nGráfica guardada en:", outfile)
