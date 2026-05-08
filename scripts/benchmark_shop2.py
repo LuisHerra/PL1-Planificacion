@@ -5,13 +5,20 @@ Benchmark de JSHOP2 – Ejercicio 1.1 - Práctica 2 - Planificación Automática
 Uso (desde la carpeta donde está este script, junto al fichero 'emergency'):
     python3 benchmark_shop2.py
 
+Genera dos ficheros PNG en la misma carpeta que el script:
+  - benchmark_comparativa.png  →  FF clásico vs. JSHOP2 (gráfica mejorada)
+  - benchmark_jshop2.png       →  solo tiempos de JSHOP2
+
 Requisitos:
   - JSHOP2 instalado en ~/JSHOP2/
   - Fichero 'emergency' (dominio sin extensión) en el mismo directorio que este script
 """
 
 import subprocess, time, os, shutil, random, argparse
+import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+import matplotlib.ticker as ticker
 
 # ── Rutas ─────────────────────────────────────────────────────────────────────
 JSHOP2_ROOT = os.path.expanduser("~/JSHOP2")
@@ -22,7 +29,8 @@ DOMAIN_SRC  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "emergenc
 
 TIMEOUT = 120
 
-# ── Tamaños crecientes ────────────────────────────────────────────────────────
+# ── Configuraciones de tamaño creciente ──────────────────────────────────────
+# Mismos parámetros que usaste: d=1, l=p=c=g=n
 CONFIGS = [
     (1,  5,  5,  5,  5, "size5"),
     (1, 10, 10, 10, 10, "size10"),
@@ -45,9 +53,17 @@ CONFIGS = [
     (1, 55, 55, 55, 55, "size55"),
 ]
 
+# Tiempos del planificador FF (Práctica 1), indexados por tamaño n
+FF_TIMES = {
+    5: 0.00, 10: 0.00, 20: 0.23, 30: 3.18, 35: 6.12,
+    40: 10.95, 41: 12.98, 42: 35.07, 43: 32.64, 44: 56.31,
+    45: 31.01, 46: 46.46, 47: 100.72, 48: 101.51, 49: 88.79,
+    50: 64.70, 51: 260.63, 52: 109.04, 55: 498.76
+}
+
 content_types = ["food", "medicine"]
 
-# ── Generador ─────────────────────────────────────────────────────────────────
+# ── Generador de problemas ────────────────────────────────────────────────────
 
 def setup_content_types(n_crates, n_persons, n_goals):
     while True:
@@ -106,7 +122,6 @@ def generate_problem(drones, locations, persons, crates, goals):
             if need[pi][ti]:
                 lines.append("  (needs " + persons_l[pi] + " " + content_types[ti] + ")")
     lines.append(")")
-    # Doble paréntesis: externo = lista de tareas, interno = la tarea
     lines.append("((enviar-todo))")
     lines.append(")")
     return "\n".join(lines)
@@ -140,112 +155,203 @@ def run_jshop2():
 
         if proc.returncode != 0:
             return None, f"Código {proc.returncode}:\n{out[:600]}"
-
         if "Plan" in out or "plan" in out or "!fly" in out or "!pick" in out or "!deliver" in out:
             return elapsed, out
-
-        # Si no hay error pero tampoco plan, puede ser problema vacío (0 needs)
         if "No plan" in out or out.strip() == "":
-            return elapsed, out   # plan vacío es válido
-
-        return None, "Sin plan reconocible en la salida:\n" + out[:600]
+            return elapsed, out
+        return None, "Sin plan reconocible:\n" + out[:600]
 
     except subprocess.TimeoutExpired:
         return None, f"TIMEOUT (>{TIMEOUT}s)"
     except FileNotFoundError as e:
         return None, str(e)
 
-# ── Gráfica ───────────────────────────────────────────────────────────────────
+# ── Gráficas ──────────────────────────────────────────────────────────────────
 
-def plot(labels, times, outfile):
-    vl = [l for l, t in zip(labels, times) if t is not None]
-    vt = [t for t in times if t is not None]
-    if not vt:
-        print("Sin datos para graficar."); return
+def plot_comparison(sizes, times_shop2, outfile):
+    """
+    Gráfica comparativa FF vs JSHOP2.
+    Panel izquierdo: escala logarítmica (muestra toda la diferencia).
+    Panel derecho: barras de speedup (cuántas veces más rápido es JSHOP2).
+    """
+    times_ff = [FF_TIMES.get(s, None) for s in sizes]
 
-    # Matriz M de tiempos de ejecución sin planificación jerárquica
-    M_DATA = {
-        5: 0.00, 10: 0.00, 20: 0.23, 30: 3.18, 35: 6.12,
-        40: 10.95, 41: 12.98, 42: 35.07, 43: 32.64, 44: 56.31,
-        45: 31.01, 46: 46.46, 47: 100.72, 48: 101.51, 49: 88.79,
-        50: 64.70, 51: 260.63, 52: 109.04, 55: 498.76
-    }
-    
-    # Extraer los tamaños de los labels, ej: "size5" -> 5
-    try:
-        sizes = [int(l.replace("size", "")) for l in vl]
-    except ValueError:
-        sizes = list(range(len(vl)))
-        
-    vm = [M_DATA.get(s, None) for s in sizes]
+    # Filtrar pares donde ambos tienen dato
+    paired = [(s, sh, ff) for s, sh, ff in zip(sizes, times_shop2, times_ff)
+              if sh is not None and ff is not None]
+    if not paired:
+        print("Sin datos para la gráfica comparativa.")
+        return
 
-    fig, axs = plt.subplots(1, 3, figsize=(18, 6))
-    
-    # --- 1. Gráfica lineal de comparación ---
-    axs[0].plot(sizes, vt, 'o-', color='steelblue', lw=2.2, ms=8, label='JSHOP2 (Jerárquico)')
-    
-    valid_m_idx = [i for i, m in enumerate(vm) if m is not None]
-    valid_m_sizes = [sizes[i] for i in valid_m_idx]
-    valid_m_times = [vm[i] for i in valid_m_idx]
-    
-    if valid_m_times:
-        axs[0].plot(valid_m_sizes, valid_m_times, 's-', color='darkorange', lw=2.2, ms=8, label='Sin Jerárquico (M)')
-    
-    axs[0].set_xlabel("Tamaño del problema")
-    axs[0].set_ylabel("Tiempo de resolución (s)")
-    axs[0].set_title("Comparativa de Tiempos")
-    axs[0].legend()
-    axs[0].grid(True, linestyle='--', alpha=0.55)
+    ps, psh, pff = zip(*paired)
 
-    # --- 2. Diagrama de Poincaré (x[t] vs x[t-1]) ---
-    if len(vt) > 1:
-        axs[1].scatter(vt[:-1], vt[1:], color='steelblue', label='JSHOP2', alpha=0.7)
-    if len(valid_m_times) > 1:
-        axs[1].scatter(valid_m_times[:-1], valid_m_times[1:], color='darkorange', label='Sin Jerárquico (M)', marker='s', alpha=0.7)
-    
-    # Línea de identidad x_t = x_{t-1}
-    max_val = max(max(vt), max(valid_m_times) if valid_m_times else 0)
-    axs[1].plot([0, max_val], [0, max_val], 'k--', alpha=0.3, label='$x_t = x_{t-1}$')
-    axs[1].set_xlabel("Tiempo en iteración $t-1$ (s)")
-    axs[1].set_ylabel("Tiempo en iteración $t$ (s)")
-    axs[1].set_title("Diagrama de Poincaré")
-    axs[1].legend()
-    axs[1].grid(True, linestyle='--', alpha=0.55)
+    fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+    fig.patch.set_facecolor("#F7F9FC")
 
-    # --- 3. Histograma de la diferencia de tiempos (M - JSHOP2) ---
-    common_sizes = []
-    diffs = []
-    for s, t, m in zip(sizes, vt, vm):
-        if m is not None:
-            common_sizes.append(str(s))
-            diffs.append(m - t) # Diferencia positiva indica que Jerárquico es más rápido
-            
-    if diffs:
-        colors = ['green' if d >= 0 else 'red' for d in diffs]
-        axs[2].bar(common_sizes, diffs, color=colors, alpha=0.7)
-        axs[2].axhline(0, color='black', lw=1)
-        axs[2].set_xlabel("Tamaño del problema")
-        axs[2].set_ylabel("Diferencia (M - Jerárquico) [s]")
-        axs[2].set_title("Mejora de tiempo (Jerárquico vs M)\n>0 indica que Jerárquico es más rápido")
-        axs[2].tick_params(axis='x', rotation=45)
-        axs[2].grid(axis='y', linestyle='--', alpha=0.55)
+    # ── Panel 1: escala log ───────────────────────────────────────────────────
+    ax = axes[0]
+    ax.set_facecolor("#F0F4F8")
+
+    ax.plot(ps, pff, 'o-', color='#E05C5C', lw=2.5, ms=8, zorder=3,
+            label='Planificador clásico (FF)', markeredgecolor='white', markeredgewidth=1.2)
+    ax.plot(ps, psh, 's-', color='#2B7EC1', lw=2.5, ms=8, zorder=3,
+            label='JSHOP2 (HTN)', markeredgecolor='white', markeredgewidth=1.2)
+
+    # Sombrear la zona entre ambas curvas
+    ax.fill_between(ps, pff, psh, alpha=0.15, color='#E05C5C',
+                    label='Diferencia de rendimiento')
+
+    # Límite de 1 minuto
+    ax.axhline(60, color='#FF9500', lw=1.8, linestyle='--', alpha=0.8, label='Límite 1 minuto')
+
+    ax.set_yscale('log')
+    ax.yaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f"{x:.2f}s"))
+    ax.set_xlabel("Tamaño del problema (n)", fontsize=12, labelpad=8)
+    ax.set_ylabel("Tiempo de resolución (segundos, escala log)", fontsize=11)
+    ax.set_title("FF clásico vs. JSHOP2\n(escala logarítmica)", fontsize=13, fontweight='bold', pad=12)
+    ax.legend(fontsize=10, framealpha=0.9)
+    ax.grid(True, which='both', linestyle='--', alpha=0.4)
+    ax.grid(True, which='major', linestyle='--', alpha=0.6)
+    ax.set_xlim(min(ps) - 1, max(ps) + 1)
+
+    # Anotaciones en los extremos más llamativos
+    max_ff_idx = pff.index(max(pff))
+    ax.annotate(f"{max(pff):.0f}s",
+                xy=(ps[max_ff_idx], pff[max_ff_idx]),
+                xytext=(ps[max_ff_idx] - 4, pff[max_ff_idx] * 1.8),
+                fontsize=9, color='#E05C5C', fontweight='bold',
+                arrowprops=dict(arrowstyle='->', color='#E05C5C', lw=1.2))
+
+    # ── Panel 2: speedup en barras ────────────────────────────────────────────
+    ax2 = axes[1]
+    ax2.set_facecolor("#F0F4F8")
+
+    speedups = [ff / sh if sh > 0 else 0 for ff, sh in zip(pff, psh)]
+    # Colorear según magnitud del speedup
+    colors = ['#2B7EC1' if sp < 10 else '#1A5C99' if sp < 50 else '#0D3A66'
+              for sp in speedups]
+
+    bars = ax2.bar(ps, speedups, color=colors, width=1.8, zorder=3,
+                   edgecolor='white', linewidth=0.8)
+
+    # Etiquetar cada barra con el valor de speedup
+    for bar, sp in zip(bars, speedups):
+        if sp > 0.5:
+            ax2.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 1,
+                     f"×{sp:.0f}" if sp >= 10 else f"×{sp:.1f}",
+                     ha='center', va='bottom', fontsize=8.5, fontweight='bold',
+                     color='#1A3A5C')
+
+    ax2.axhline(1, color='#E05C5C', lw=1.8, linestyle='--', alpha=0.8,
+                label='Mismo tiempo (speedup = 1×)')
+
+    ax2.set_xlabel("Tamaño del problema (n)", fontsize=12, labelpad=8)
+    ax2.set_ylabel("Speedup de JSHOP2 respecto a FF (veces más rápido)", fontsize=11)
+    ax2.set_title("Aceleración de JSHOP2 sobre FF\n(speedup = t_FF / t_JSHOP2)", fontsize=13, fontweight='bold', pad=12)
+    ax2.legend(fontsize=10, framealpha=0.9)
+    ax2.grid(True, axis='y', linestyle='--', alpha=0.5)
+    ax2.set_xlim(min(ps) - 2, max(ps) + 2)
+
+    # Leyenda de colores
+    patch_low  = mpatches.Patch(color='#2B7EC1',  label='Speedup < 10×')
+    patch_mid  = mpatches.Patch(color='#1A5C99',  label='Speedup 10–50×')
+    patch_high = mpatches.Patch(color='#0D3A66',  label='Speedup > 50×')
+    ax2.legend(handles=[patch_low, patch_mid, patch_high,
+                         mpatches.Patch(color='#E05C5C', label='Referencia 1×')],
+               fontsize=9, framealpha=0.9, loc='upper left')
+
+    fig.suptitle("Comparativa de Rendimiento: Planificación Clásica vs. Jerárquica\n"
+                 "Ejercicio 1.1 – Logística de Emergencias",
+                 fontsize=14, fontweight='bold', y=1.01)
+    plt.tight_layout()
+    plt.savefig(outfile, dpi=180, bbox_inches='tight')
+    print(f"Gráfica comparativa guardada en: {outfile}")
+
+
+def plot_jshop2_only(sizes, times_shop2, outfile):
+    """
+    Gráfica exclusiva de JSHOP2: línea de tiempo + banda de variación + media.
+    """
+    paired = [(s, t) for s, t in zip(sizes, times_shop2) if t is not None]
+    if not paired:
+        print("Sin datos para la gráfica de JSHOP2.")
+        return
+
+    ps, pt = zip(*paired)
+    mean_t  = np.mean(pt)
+    std_t   = np.std(pt)
+
+    fig, ax = plt.subplots(figsize=(13, 6))
+    fig.patch.set_facecolor("#F7F9FC")
+    ax.set_facecolor("#F0F4F8")
+
+    # Banda ±1 desviación típica
+    ax.fill_between(ps,
+                    [mean_t - std_t] * len(ps),
+                    [mean_t + std_t] * len(ps),
+                    alpha=0.18, color='#2B7EC1', label=f'Banda ±1σ ({std_t:.3f}s)')
+
+    # Línea de media
+    ax.axhline(mean_t, color='#1A5C99', lw=2, linestyle='--', alpha=0.85,
+               label=f'Media = {mean_t:.3f}s')
+
+    # Curva principal
+    ax.plot(ps, pt, 'o-', color='#2B7EC1', lw=2.5, ms=9, zorder=4,
+            markeredgecolor='white', markeredgewidth=1.5, label='JSHOP2 (HTN)')
+
+    # Marcar máximo y mínimo
+    max_idx = pt.index(max(pt))
+    min_idx = pt.index(min(pt))
+    ax.annotate(f"máx: {max(pt):.2f}s",
+                xy=(ps[max_idx], pt[max_idx]),
+                xytext=(ps[max_idx] + 1.5, pt[max_idx] + 0.1),
+                fontsize=9, color='#E05C5C', fontweight='bold',
+                arrowprops=dict(arrowstyle='->', color='#E05C5C', lw=1.2))
+    ax.annotate(f"mín: {min(pt):.2f}s",
+                xy=(ps[min_idx], pt[min_idx]),
+                xytext=(ps[min_idx] + 1.5, pt[min_idx] - 0.18),
+                fontsize=9, color='#27AE60', fontweight='bold',
+                arrowprops=dict(arrowstyle='->', color='#27AE60', lw=1.2))
+
+    ax.set_xlabel("Tamaño del problema (n)", fontsize=12, labelpad=8)
+    ax.set_ylabel("Tiempo de resolución (segundos)", fontsize=12)
+    ax.set_title("Tiempo de resolución de JSHOP2 según el tamaño del problema\n"
+                 "Ejercicio 1.1 – Logística de Emergencias (HTN)",
+                 fontsize=13, fontweight='bold', pad=12)
+    ax.legend(fontsize=10, framealpha=0.9)
+    ax.grid(True, linestyle='--', alpha=0.5)
+    ax.set_xlim(min(ps) - 1, max(ps) + 2)
+    ax.set_ylim(0, max(pt) * 1.3)
+
+    # Texto con estadísticas en la esquina
+    stats_text = (f"n = {len(pt)} problemas\n"
+                  f"Media: {mean_t:.3f}s\n"
+                  f"σ: {std_t:.3f}s\n"
+                  f"Rango: [{min(pt):.2f}, {max(pt):.2f}]s")
+    ax.text(0.02, 0.97, stats_text, transform=ax.transAxes,
+            fontsize=9.5, verticalalignment='top', color='#1A3A5C',
+            bbox=dict(boxstyle='round,pad=0.5', facecolor='white', alpha=0.85, edgecolor='#AAAAAA'))
 
     plt.tight_layout()
-    plt.savefig(outfile, dpi=160)
-    print("\nGráfica guardada en:", outfile)
+    plt.savefig(outfile, dpi=180, bbox_inches='tight')
+    print(f"Gráfica JSHOP2 guardada en: {outfile}")
+
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--output', default='benchmark_shop2.png')
+    parser.add_argument('--output-comparison', default='benchmark_comparativa.png',
+                        help='Nombre del PNG comparativo FF vs. JSHOP2')
+    parser.add_argument('--output-jshop2', default='benchmark_jshop2.png',
+                        help='Nombre del PNG solo con tiempos de JSHOP2')
     args = parser.parse_args()
 
     print("Preparando carpeta de dominio:", DOMAIN_DIR)
     prepare()
     print()
 
-    labels, times = [], []
+    labels, sizes, times = [], [], []
 
     for drones, locs, persons, crates, goals, label in CONFIGS:
         print("─" * 55)
@@ -254,6 +360,7 @@ def main():
         print("  Ejecutando JSHOP2...", end=" ", flush=True)
         t, out = run_jshop2()
         labels.append(label)
+        sizes.append(locs)   # n = locations = persons = crates = goals
         if t is not None:
             print(f"{t:.4f}s  ✓")
             times.append(t)
@@ -262,14 +369,28 @@ def main():
             print("  →", out[:400])
             times.append(None)
 
-    print("\n" + "=" * 45)
-    print(f"{'Problema':<28} {'Tiempo (s)':>15}")
-    print("-" * 45)
-    for l, t in zip(labels, times):
-        print(f"{l:<28} {f'{t:.4f}' if t is not None else 'FALLO/TIMEOUT':>15}")
+    # ── Tabla resumen ─────────────────────────────────────────────────────────
+    print("\n" + "=" * 55)
+    print(f"{'Problema':<20} {'n':>4} {'JSHOP2 (s)':>12} {'FF (s)':>10} {'Speedup':>10}")
+    print("-" * 55)
+    for label, n, t in zip(labels, sizes, times):
+        ff = FF_TIMES.get(n, None)
+        if t is not None and ff is not None and t > 0:
+            sp = f"×{ff/t:.1f}"
+        else:
+            sp = "-"
+        t_str  = f"{t:.4f}" if t is not None else "FALLO"
+        ff_str = f"{ff:.2f}" if ff is not None else "-"
+        print(f"{label:<20} {n:>4} {t_str:>12} {ff_str:>10} {sp:>10}")
 
-    outfile = os.path.join(os.path.dirname(os.path.abspath(__file__)), args.output)
-    plot(labels, times, outfile)
+    # ── Gráficas ──────────────────────────────────────────────────────────────
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    out_comp   = os.path.join(script_dir, args.output_comparison)
+    out_shop2  = os.path.join(script_dir, args.output_jshop2)
+
+    plot_comparison(sizes, times, out_comp)
+    plot_jshop2_only(sizes, times, out_shop2)
+
 
 if __name__ == '__main__':
     main()
