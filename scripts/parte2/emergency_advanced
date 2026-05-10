@@ -1,4 +1,4 @@
-(defdomain emergency-advanced
+(defdomain emergency_advanced
   (
 
    ;; ================================================================

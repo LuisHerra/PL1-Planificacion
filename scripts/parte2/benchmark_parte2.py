@@ -15,10 +15,10 @@ import matplotlib.pyplot as plt
 
 # ── Rutas ─────────────────────────────────────────────────────────────────────
 JSHOP2_ROOT = os.path.expanduser("~/JSHOP2")
+DOMAIN_NAME = "emergency_advanced"
 CONSOLE_SH  = os.path.join(JSHOP2_ROOT, "jshop2-console.sh")
-DOMAIN_NAME = "emergency"
 DOMAIN_DIR  = os.path.join(JSHOP2_ROOT, "domains", DOMAIN_NAME)
-DOMAIN_SRC  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "emergency")
+DOMAIN_SRC  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "emergency_advanced")
 
 TIMEOUT = 120
 
@@ -75,7 +75,7 @@ def generate_problem(drones, locations, persons, crates, goals):
     for _ in range(medicine_need):
         loc_needs[random.choice(locs_l)]["medicine"] += 1
 
-    lines = ["(defproblem problem emergency-advanced", "("]
+    lines = ["(defproblem problem emergency_advanced", "("]
     
     # Drones
     for d in drones_l:
@@ -157,63 +157,156 @@ def run_jshop2():
 
 # ── Gráfica ───────────────────────────────────────────────────────────────────
 
-def plot(labels, times, outfile):
-    vl = [l for l, t in zip(labels, times) if t is not None]
-    vt = [t for t in times if t is not None]
-    if not vt:
-        print("Sin datos para graficar."); return
+def plot_advanced(labels, sizes, results, outfile, show_poincare=False):
+    """
+    Genera un dashboard con:
+    1. Tiempo medio vs Tamaño (con banda de desviación)
+    2. Esfuerzo relativo (Tiempo / n)
+    3. Escalabilidad Log-Log
+    4. Diagrama de Poincaré (solo si show_poincare=True)
+    """
+    import numpy as np
+    import matplotlib.ticker as ticker
 
-    fig, ax = plt.subplots(figsize=(13, 6))
-    ax.plot(range(len(vl)), vt, 'o-', color='steelblue', lw=2.2, ms=8,
-            label='JSHOP2 (HTN)')
-    ax.set_xticks(range(len(vl)))
-    ax.set_xticklabels(vl, rotation=28, ha='right', fontsize=9)
-    ax.set_xlabel("Configuración del problema (tamaño creciente)", fontsize=11)
-    ax.set_ylabel("Tiempo de resolución (segundos)", fontsize=11)
-    ax.set_title("Tiempo de resolución vs. Tamaño del problema\n"
-                 "Ejercicio 1.1 – JSHOP2 logística de emergencias", fontsize=13)
-    ax.legend(fontsize=10)
-    ax.grid(True, linestyle='--', alpha=0.55)
+    # Filtrar datos válidos
+    valid_labels = []
+    valid_sizes = []
+    means = []
+    stds = []
+    all_times = [] # Para Poincaré
+    
+    for label, size in zip(labels, sizes):
+        times = [t for t in results[label] if t is not None]
+        if times:
+            valid_labels.append(label)
+            valid_sizes.append(size)
+            means.append(np.mean(times))
+            stds.append(np.std(times))
+            all_times.append(times)
+
+    if not valid_sizes:
+        print("Sin datos suficientes para graficar."); return
+
+    n_rows = 2 if show_poincare else 1
+    n_cols = 2
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(15, 6 * n_rows))
+    fig.patch.set_facecolor("#F8F9FA")
+    axes = axes.flatten()
+
+    # ── 1. Tiempo Medio con Desviación ───────────────────────────────────────
+    ax = axes[0]
+    ax.set_facecolor("#FFFFFF")
+    ax.errorbar(valid_sizes, means, yerr=stds, fmt='o-', color='#2B7EC1', 
+                ecolor='#A0C4E4', capsize=4, elinewidth=1.5, markeredgecolor='white',
+                label='Media ± σ')
+    ax.fill_between(valid_sizes, np.array(means)-np.array(stds), np.array(means)+np.array(stds), 
+                    alpha=0.1, color='#2B7EC1')
+    ax.set_title("Tiempo de Resolución vs. Tamaño", fontweight='bold')
+    ax.set_xlabel("Tamaño n (localizaciones/necesidades)")
+    ax.set_ylabel("Segundos")
+    ax.grid(True, linestyle='--', alpha=0.5)
+
+    # ── 2. Esfuerzo Relativo (Tiempo / n) ────────────────────────────────────
+    ax = axes[1]
+    ax.set_facecolor("#FFFFFF")
+    effort = [m / s for m, s in zip(means, valid_sizes)]
+    ax.plot(valid_sizes, effort, 's-', color='#E67E22', markeredgecolor='white')
+    ax.set_title("Esfuerzo Relativo (Segundos / n)", fontweight='bold')
+    ax.set_xlabel("Tamaño n")
+    ax.set_ylabel("Segundos por unidad de n")
+    ax.grid(True, linestyle='--', alpha=0.5)
+    # Si la línea es plana, la escalabilidad es lineal O(n)
+
+    # ── 3. Escalabilidad Log-Log ─────────────────────────────────────────────
+    ax = axes[2]
+    ax.set_facecolor("#FFFFFF")
+    ax.loglog(valid_sizes, means, 'o-', color='#27AE60', markeredgecolor='white')
+    # Ajuste lineal en log-log para calcular la pendiente (complejidad)
+    log_s = np.log(valid_sizes)
+    log_m = np.log(means)
+    slope, intercept = np.polyfit(log_s, log_m, 1)
+    ax.set_title(f"Escalabilidad Log-Log (Complejidad ≈ O(n^{slope:.1f}))", fontweight='bold')
+    ax.set_xlabel("log(n)")
+    ax.set_ylabel("log(Segundos)")
+    ax.grid(True, which="both", linestyle='--', alpha=0.4)
+
+    # ── 4. Diagrama de Poincaré ──────────────────────────────────────────────
+    if show_poincare:
+        ax = axes[3]
+        ax.set_facecolor("#FFFFFF")
+        x_p, y_p = [], []
+        for times in all_times:
+            if len(times) > 1:
+                for i in range(len(times)-1):
+                    x_p.append(times[i])
+                    y_p.append(times[i+1])
+        ax.scatter(x_p, y_p, alpha=0.6, edgecolors='white', color='#8E44AD')
+        # Línea identidad
+        max_val = max(max(x_p), max(y_p)) if x_p else 1
+        ax.plot([0, max_val], [0, max_val], '--', color='gray', alpha=0.5)
+        ax.set_title("Diagrama de Poincaré (t_i vs t_{i+1})", fontweight='bold')
+        ax.set_xlabel("Tiempo ejecución i")
+        ax.set_ylabel("Tiempo ejecución i+1")
+        ax.grid(True, linestyle='--', alpha=0.5)
+    else:
+        # Si no hay Poincaré, ocultamos el cuarto eje si existe
+        if len(axes) > 3: axes[3].axis('off')
+
     plt.tight_layout()
     plt.savefig(outfile, dpi=160)
-    print("\nGráfica guardada en:", outfile)
+    print(f"\nDashboard de análisis guardado en: {outfile}")
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--output', default='benchmark_shop2.png')
+    parser.add_argument('--output', default='benchmark_parte2_analytics.png')
+    parser.add_argument('--poincare_full', action='store_true', 
+                        help='Ejecuta 5 veces cada tamaño para análisis de estabilidad')
     args = parser.parse_args()
 
     print("Preparando carpeta de dominio:", DOMAIN_DIR)
     prepare()
     print()
 
-    labels, times = [], []
+    iterations = 5 if args.poincare_full else 1
+    results = { label: [] for _, _, _, _, _, label in CONFIGS }
+    all_sizes = []
+    all_labels = []
 
     for drones, locs, persons, crates, goals, label in CONFIGS:
-        print("─" * 55)
-        print("Problema:", label)
-        write_problem(generate_problem(drones, locs, persons, crates, goals))
-        print("  Ejecutando JSHOP2...", end=" ", flush=True)
-        t, out = run_jshop2()
-        labels.append(label)
-        if t is not None:
-            print(f"{t:.4f}s  ✓")
-            times.append(t)
-        else:
-            print("FALLO")
-            print("  →", out[:400])
-            times.append(None)
+        print("─" * 60)
+        print(f"Problema: {label:<10} (n={locs})")
+        all_sizes.append(locs)
+        all_labels.append(label)
+        
+        for i in range(iterations):
+            suffix = f" [Run {i+1}/{iterations}]" if iterations > 1 else ""
+            write_problem(generate_problem(drones, locs, persons, crates, goals))
+            print(f"  Ejecutando JSHOP2{suffix}...", end=" ", flush=True)
+            t, out = run_jshop2()
+            if t is not None:
+                print(f"{t:.4f}s  ✓")
+                results[label].append(t)
+            else:
+                print("FALLO")
+                results[label].append(None)
 
-    print("\n" + "=" * 45)
-    print(f"{'Problema':<28} {'Tiempo (s)':>15}")
-    print("-" * 45)
-    for l, t in zip(labels, times):
-        print(f"{l:<28} {f'{t:.4f}' if t is not None else 'FALLO/TIMEOUT':>15}")
+    print("\n" + "=" * 55)
+    print(f"{'Problema':<20} {'Media (s)':>12} {'Desv. σ':>10}")
+    print("-" * 55)
+    import numpy as np
+    for label in all_labels:
+        times = [t for t in results[label] if t is not None]
+        if times:
+            m = np.mean(times)
+            s = np.std(times)
+            print(f"{label:<20} {m:>12.4f} {s:>10.4f}")
+        else:
+            print(f"{label:<20} {'FALLO':>12} {'-':>10}")
 
     outfile = os.path.join(os.path.dirname(os.path.abspath(__file__)), args.output)
-    plot(labels, times, outfile)
+    plot_advanced(all_labels, all_sizes, results, outfile, show_poincare=args.poincare_full)
 
 if __name__ == '__main__':
     main()
