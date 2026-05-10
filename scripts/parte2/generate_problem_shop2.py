@@ -15,79 +15,65 @@ import sys
 content_types = ["food", "medicine"]
 
 
-def setup_content_types(n_crates, n_persons, n_goals):
-    while True:
-        num_per_type, left = [], n_crates
-        for i in range(len(content_types) - 1):
-            n = random.randint(1, left - (len(content_types) - i - 1))
-            num_per_type.append(n)
-            left -= n
-        num_per_type.append(left)
-        if sum(min(n, n_persons) for n in num_per_type) >= n_goals:
-            break
-    crates_by_type, counter = [], 1
-    for i in range(len(content_types)):
-        group = []
-        for _ in range(num_per_type[i]):
-            group.append("crate" + str(counter))
-            counter += 1
-        crates_by_type.append(group)
-    return crates_by_type
+def generate(drones, locations, persons, crates, goals, domain_name="emergency-advanced"):
+    drones_l  = ["drone"  + str(i+1) for i in range(drones)]
+    locs_l    = ["loc" + str(i+1) for i in range(locations)]
 
+    # Repartimos el total de cajas (crates) entre el stock de food y medicine en el depot
+    food_stock = random.randint(0, crates)
+    medicine_stock = crates - food_stock
 
-def setup_needs(n_persons, crates_by_type, n_goals):
-    need = [[False] * len(content_types) for _ in range(n_persons)]
-    goals_per = [0] * len(content_types)
-    for _ in range(n_goals):
-        ok = False
-        while not ok:
-            rp = random.randint(0, n_persons - 1)
-            rt = random.randint(0, len(content_types) - 1)
-            if goals_per[rt] < len(crates_by_type[rt]) and not need[rp][rt]:
-                need[rp][rt] = True
-                goals_per[rt] += 1
-                ok = True
-    return need
+    # Asignamos los 'goals' (necesidades) garantizando que no superen el stock
+    food_need = 0
+    medicine_need = 0
+    for _ in range(goals):
+        choices = []
+        if food_need < food_stock: choices.append("food")
+        if medicine_need < medicine_stock: choices.append("medicine")
+        choice = random.choice(choices)
+        if choice == "food": food_need += 1
+        else: medicine_need += 1
 
+    # Distribuimos las necesidades entre las localizaciones
+    loc_needs = {l: {"food": 0, "medicine": 0} for l in locs_l}
+    for _ in range(food_need):
+        loc_needs[random.choice(locs_l)]["food"] += 1
+    for _ in range(medicine_need):
+        loc_needs[random.choice(locs_l)]["medicine"] += 1
 
-def generate(drones, locations, persons, crates, goals, domain_name="emergency"):
-    drones_l  = ["drone"  + str(i + 1) for i in range(drones)]
-    persons_l = ["person" + str(i + 1) for i in range(persons)]
-    crates_l  = ["crate"  + str(i + 1) for i in range(crates)]
-    locs_l    = ["depot"] + ["loc" + str(i + 1) for i in range(locations)]
-
-    cbt  = setup_content_types(crates, persons, goals)
-    need = setup_needs(persons, cbt, goals)
-
-    lines = []
-    lines.append("(defproblem problem " + domain_name)
-
-    # ── Estado inicial (primer argumento) ─────────────────────────────────────
-    lines.append("(")
+    lines = [f"(defproblem problem {domain_name}", "("]
+    
+    # Drones
     for d in drones_l:
         lines.append("  (at-drone " + d + " depot)")
-    for d in drones_l:
-        for arm in [d + "_arm1", d + "_arm2"]:
-            lines.append("  (arm-of " + arm + " " + d + ")")
-            lines.append("  (free " + arm + ")")
-    for c in crates_l:
-        lines.append("  (at-crate " + c + " depot)")
-    for ti, group in enumerate(cbt):
-        for cn in group:
-            lines.append("  (crate-has " + cn + " " + content_types[ti] + ")")
-    for p in persons_l:
-        lines.append("  (at-person " + p + " " + random.choice(locs_l[1:]) + ")")
-    for pi in range(persons):
-        for ti in range(len(content_types)):
-            if need[pi][ti]:
-                lines.append("  (needs " + persons_l[pi] + " " + content_types[ti] + ")")
+        lines.append("  (drone-free " + d + ")")
+
+    # Carriers (por defecto añadimos dos con las capacidades del ejemplo)
+    carriers = [("carrier-big", 8), ("carrier-small", 3)]
+    for ca, cap in carriers:
+        lines.append(f"  (at-carrier {ca} depot)")
+        lines.append(f"  (carrier-capacity {ca} {cap})")
+        lines.append(f"  (carrier-free-space {ca} {cap})")
+        lines.append(f"  (carrier-stock {ca} food 0)")
+        lines.append(f"  (carrier-stock {ca} medicine 0)")
+
+    # Stock en el depot
+    lines.append(f"  (location-stock depot food {food_stock})")
+    lines.append(f"  (location-stock depot medicine {medicine_stock})")
+
+    # Necesidades y stock por localización
+    for l in locs_l:
+        f_need = loc_needs[l]["food"]
+        m_need = loc_needs[l]["medicine"]
+        lines.append(f"  (location-need {l} food {f_need})")
+        lines.append(f"  (location-need {l} medicine {m_need})")
+        lines.append(f"  (location-total-need {l} {f_need + m_need})")
+        lines.append(f"  (location-stock {l} food 0)")
+        lines.append(f"  (location-stock {l} medicine 0)")
+
     lines.append(")")
-
-    # ── Lista de tareas (segundo argumento) ───────────────────────────────────
-    # Igual que en el ejemplo basic: ((swap banjo kiwi))
-    # El paréntesis externo es la lista, el interno es la tarea
+    # Tarea principal
     lines.append("((enviar-todo))")
-
     lines.append(")")
     return "\n".join(lines)
 
