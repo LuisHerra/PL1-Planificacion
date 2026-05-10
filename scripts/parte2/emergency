@@ -1,0 +1,337 @@
+(defdomain emergency-advanced
+  (
+
+   ;; ================================================================
+   ;; OPERADORES PRIMITIVOS
+   ;; ================================================================
+
+   (:operator (!fly ?d ?from ?to)
+              ((at-drone ?d ?from)
+               (different ?from ?to))
+              ((at-drone ?d ?from))
+              ((at-drone ?d ?to))
+              50)
+
+   (:operator (!fly-carrier ?d ?ca ?from ?to)
+              ((at-drone ?d ?from)
+               (carrying ?d ?ca)
+               (different ?from ?to)
+               (carrier-capacity ?ca ?cap))
+              ((at-drone ?d ?from))
+              ((at-drone ?d ?to))
+              (call + 50 (call / ?cap 10)))
+
+   (:operator (!pick-up-carrier ?d ?ca ?l)
+              ((at-drone ?d ?l)
+               (at-carrier ?ca ?l)
+               (drone-free ?d))
+              ((at-carrier ?ca ?l))
+              ((carrying ?d ?ca)))
+
+   (:operator (!drop-carrier ?d ?ca ?l)
+              ((at-drone ?d ?l)
+               (carrying ?d ?ca))
+              ((carrying ?d ?ca))
+              ((at-carrier ?ca ?l)))
+
+   (:operator (!load-crates ?d ?ca ?l ?t ?n)
+              ((at-drone ?d ?l)
+               (carrying ?d ?ca)
+               (call > ?n 0)
+               (location-stock ?l ?t ?stock)
+               (call >= ?stock ?n)
+               (carrier-free-space ?ca ?space)
+               (call >= ?space ?n)
+               (carrier-stock ?ca ?t ?cstock)
+               (assign ?new-stock (call - ?stock ?n))
+               (assign ?new-cstock (call + ?cstock ?n))
+               (assign ?new-space (call - ?space ?n)))
+              ((location-stock ?l ?t ?stock)
+               (carrier-stock ?ca ?t ?cstock)
+               (carrier-free-space ?ca ?space))
+              ((location-stock ?l ?t ?new-stock)
+               (carrier-stock ?ca ?t ?new-cstock)
+               (carrier-free-space ?ca ?new-space)))
+
+   (:operator (!deliver-from-carrier ?d ?ca ?l ?t ?n)
+              ((at-drone ?d ?l)
+               (carrying ?d ?ca)
+               (call > ?n 0)
+               (carrier-stock ?ca ?t ?cstock)
+               (call >= ?cstock ?n)
+               (location-need ?l ?t ?need)
+               (call >= ?need ?n)
+               (carrier-free-space ?ca ?space)
+               (location-total-need ?l ?totneed)
+               (assign ?new-cstock (call - ?cstock ?n))
+               (assign ?new-space (call + ?space ?n))
+               (assign ?new-need (call - ?need ?n))
+               (assign ?new-totneed (call - ?totneed ?n)))
+              ((carrier-stock ?ca ?t ?cstock)
+               (carrier-free-space ?ca ?space)
+               (location-need ?l ?t ?need)
+               (location-total-need ?l ?totneed))
+              ((carrier-stock ?ca ?t ?new-cstock)
+               (carrier-free-space ?ca ?new-space)
+               (location-need ?l ?t ?new-need)
+               (location-total-need ?l ?new-totneed)))
+
+   (:operator (!pick-up-loose ?d ?l ?t)
+              ((at-drone ?d ?l)
+               (drone-free ?d)
+               (location-stock ?l ?t ?stock)
+               (call > ?stock 0)
+               (assign ?new-stock (call - ?stock 1)))
+              ((location-stock ?l ?t ?stock))
+              ((location-stock ?l ?t ?new-stock)
+               (drone-holding-type ?d ?t)
+               (drone-holding-count ?d 1)))
+
+   (:operator (!set-drone-busy ?d)
+              ((drone-free ?d))
+              ((drone-free ?d))
+              ())
+
+   (:operator (!set-drone-free ?d)
+              ()
+              ()
+              ((drone-free ?d)))
+
+   (:operator (!deliver-loose ?d ?l ?t)
+              ((at-drone ?d ?l)
+               (drone-holding-type ?d ?t)
+               (drone-holding-count ?d ?count)
+               (call > ?count 0)
+               (location-need ?l ?t ?need)
+               (call > ?need 0)
+               (location-total-need ?l ?totneed)
+               (assign ?new-count (call - ?count 1))
+               (assign ?new-need (call - ?need 1))
+               (assign ?new-totneed (call - ?totneed 1)))
+              ((drone-holding-count ?d ?count)
+               (location-need ?l ?t ?need)
+               (location-total-need ?l ?totneed))
+              ((drone-holding-count ?d ?new-count)
+               (location-need ?l ?t ?new-need)
+               (location-total-need ?l ?new-totneed)))
+
+   ;; ================================================================
+   ;; MÉTODOS AUXILIARES
+   ;; ================================================================
+
+   (:method (volver-a-depot ?d)
+            ya-en-depot
+            ((at-drone ?d depot))
+            ())
+
+   (:method (volver-a-depot ?d)
+            con-carrier
+            ((at-drone ?d ?loc)
+             (different ?loc depot)
+             (carrying ?d ?ca))
+            ((!fly-carrier ?d ?ca ?loc depot)))
+
+   (:method (volver-a-depot ?d)
+            sin-carrier
+            ((at-drone ?d ?loc)
+             (different ?loc depot))
+            ((!fly ?d ?loc depot)))
+
+   (:method (elegir-carrier ?d ?l)
+            carrier-cubre-necesidad
+            ((at-drone ?d depot)
+             (at-carrier ?ca depot)
+             (drone-free ?d)
+             (location-total-need ?l ?need)
+             (carrier-capacity ?ca ?cap)
+             (call >= ?cap ?need)
+             (not (and (at-carrier ?ca2 depot)
+                       (different ?ca2 ?ca)
+                       (carrier-capacity ?ca2 ?cap2)
+                       (call >= ?cap2 ?need)
+                       (call < ?cap2 ?cap))))
+            ((!pick-up-carrier ?d ?ca depot)))
+
+   (:method (elegir-carrier ?d ?l)
+            carrier-no-cubre-usar-mayor
+            ((at-drone ?d depot)
+             (at-carrier ?ca depot)
+             (drone-free ?d)
+             (location-total-need ?l ?need)
+             (carrier-capacity ?ca ?cap)
+             (call < ?cap ?need)
+             (not (and (at-carrier ?ca2 depot)
+                       (different ?ca2 ?ca)
+                       (carrier-capacity ?ca2 ?cap2)
+                       (call > ?cap2 ?cap))))
+            ((!pick-up-carrier ?d ?ca depot)))
+
+   (:method (elegir-carrier ?d ?l)
+            sin-carriers
+            ((at-drone ?d depot)
+             (not (at-carrier ?ca depot)))
+            ())
+
+   (:method (cargar-para-loc ?d ?ca ?l ?t)
+            cargar-tipo
+            ((at-drone ?d depot)
+             (carrying ?d ?ca)
+             (location-need ?l ?t ?need)
+             (call > ?need 0)
+             (carrier-free-space ?ca ?space)
+             (call > ?space 0)
+             (location-stock depot ?t ?stock)
+             (call > ?stock 0)
+             (or (and (call < ?need ?space) (assign ?min1 ?need))
+                 (and (call >= ?need ?space) (assign ?min1 ?space)))
+             (or (and (call < ?min1 ?stock) (assign ?n ?min1))
+                 (and (call >= ?min1 ?stock) (assign ?n ?stock))))
+            ((!load-crates ?d ?ca depot ?t ?n)))
+
+   (:method (cargar-para-loc ?d ?ca ?l ?t)
+            carga-completa
+            ()
+            ())
+
+   (:method (cargar-todo-para-loc ?d ?ca ?l)
+            cargar-ambos-tipos
+            ()
+            ((cargar-para-loc ?d ?ca ?l food)
+             (cargar-para-loc ?d ?ca ?l medicine)))
+
+   (:method (entregar-en-loc ?d ?ca ?l)
+            entregar-con-carrier
+            ((at-drone ?d ?l)
+             (carrying ?d ?ca)
+             (carrier-stock ?ca food ?sfood)
+             (carrier-stock ?ca medicine ?smed)
+             (call > (call + ?sfood ?smed) 0))
+            ((entregar-tipo-carrier ?d ?ca ?l food)
+             (entregar-tipo-carrier ?d ?ca ?l medicine)))
+
+   (:method (entregar-en-loc ?d ?ca ?l)
+            nada-que-entregar
+            ()
+            ())
+
+   (:method (entregar-tipo-carrier ?d ?ca ?l ?t)
+            hay-stock-tipo
+            ((at-drone ?d ?l)
+             (carrying ?d ?ca)
+             (carrier-stock ?ca ?t ?cstock)
+             (call > ?cstock 0)
+             (location-need ?l ?t ?need)
+             (call > ?need 0)
+             (or (and (call < ?cstock ?need) (assign ?n ?cstock))
+                 (and (call >= ?cstock ?need) (assign ?n ?need))))
+            ((!deliver-from-carrier ?d ?ca ?l ?t ?n)))
+
+   (:method (entregar-tipo-carrier ?d ?ca ?l ?t)
+            sin-stock-tipo
+            ()
+            ())
+
+   (:method (entregar-suelto-en-loc ?d ?l ?t)
+            hay-necesidad-y-stock
+            ((at-drone ?d ?l)
+             (location-need ?l ?t ?need)
+             (call > ?need 0)
+             (location-stock depot ?t ?stock)
+             (call > ?stock 0))
+            ((volver-a-depot ?d)
+             (!pick-up-loose ?d depot ?t)
+             (!set-drone-busy ?d)
+             (!fly ?d depot ?l)
+             (!deliver-loose ?d ?l ?t)
+             (!set-drone-free ?d)
+             (entregar-suelto-en-loc ?d ?l ?t)))
+
+   (:method (entregar-suelto-en-loc ?d ?l ?t)
+            necesidad-cubierta
+            ()
+            ())
+
+   (:method (atender-localizacion ?d ?l)
+            con-carrier-disponible
+            ((at-drone ?d depot)
+             (at-carrier ?ca depot)
+             (location-total-need ?l ?need)
+             (call > ?need 0))
+            ((elegir-carrier ?d ?l)
+             (cargar-todo-para-loc ?d ?ca ?l)
+             (!fly-carrier ?d ?ca depot ?l)
+             (entregar-en-loc ?d ?ca ?l)
+             (volver-a-depot ?d)
+             (!drop-carrier ?d ?ca depot)))
+
+   (:method (atender-localizacion ?d ?l)
+            sin-carrier-disponible
+            ((at-drone ?d depot)
+             (not (at-carrier ?ca depot))
+             (location-total-need ?l ?need)
+             (call > ?need 0))
+            ((entregar-suelto-en-loc ?d ?l food)
+             (entregar-suelto-en-loc ?d ?l medicine)))
+
+   (:method (atender-multi-loc ?d ?ca ?l1 ?l2)
+            carrier-cubre-ambas
+            ((at-drone ?d depot)
+             (carrying ?d ?ca)
+             (location-total-need ?l1 ?need1)
+             (call > ?need1 0)
+             (location-total-need ?l2 ?need2)
+             (call > ?need2 0)
+             (carrier-capacity ?ca ?cap)
+             (call >= ?cap (call + ?need1 ?need2)))
+            ((cargar-todo-para-loc ?d ?ca ?l1)
+             (cargar-todo-para-loc ?d ?ca ?l2)
+             (!fly-carrier ?d ?ca depot ?l1)
+             (entregar-en-loc ?d ?ca ?l1)
+             (!fly-carrier ?d ?ca ?l1 ?l2)
+             (entregar-en-loc ?d ?ca ?l2)
+             (volver-a-depot ?d)
+             (!drop-carrier ?d ?ca depot)))
+
+   ;; ================================================================
+   ;; MÉTODO RAÍZ: (enviar-todo)
+   ;; ================================================================
+
+   (:method (enviar-todo)
+            multi-loc-posible
+            ((at-drone ?d depot)
+             (drone-free ?d)
+             (location-total-need ?l1 ?need1)
+             (call > ?need1 0)
+             (different ?l1 depot)
+             (location-total-need ?l2 ?need2)
+             (call > ?need2 0)
+             (different ?l2 depot)
+             (different ?l1 ?l2)
+             (call >= ?need1 ?need2)
+             (at-carrier ?ca depot)
+             (carrier-capacity ?ca ?cap)
+             (call >= ?cap (call + ?need1 ?need2)))
+            ((elegir-carrier ?d ?l1)
+             (atender-multi-loc ?d ?ca ?l1 ?l2)
+             (enviar-todo)))
+
+   (:method (enviar-todo)
+            hay-necesidades
+            ((at-drone ?d depot)
+             (drone-free ?d)
+             (location-total-need ?l ?need)
+             (call > ?need 0)
+             (different ?l depot)
+             (not (and (location-total-need ?l2 ?need2)
+                       (different ?l2 ?l)
+                       (different ?l2 depot)
+                       (call > ?need2 ?need))))
+            ((atender-localizacion ?d ?l)
+             (enviar-todo)))
+
+   (:method (enviar-todo)
+            no-hay-necesidades
+            ()
+            ())
+
+  ))
