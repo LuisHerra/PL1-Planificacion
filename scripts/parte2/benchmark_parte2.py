@@ -187,9 +187,9 @@ def plot_advanced(labels, sizes, results, outfile, show_poincare=False):
     if not valid_sizes:
         print("Sin datos suficientes para graficar."); return
 
-    n_rows = 2 if show_poincare else 1
+    n_rows = 2
     n_cols = 2
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(15, 6 * n_rows))
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(15, 10))
     fig.patch.set_facecolor("#F8F9FA")
     axes = axes.flatten()
 
